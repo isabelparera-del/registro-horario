@@ -94,7 +94,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail, verifyPasswordResetCode, confirmPasswordReset, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ====== 1. CONFIGURACIÓN: pega aquí la de tu proyecto Firebase (Consola > Configuración del proyecto > Tus apps) ======
@@ -145,7 +145,9 @@ const COLOR = { entrada:'var(--verde)', pausa:'var(--ambar)', reanudar:'var(--ve
 const toast = m => { const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2200); };
 const esGestor = () => S.perfil && (S.perfil.rol === 'gestor' || S.perfil.rol === 'admin');
 const esAdmin = () => S.perfil && S.perfil.rol === 'admin';
-const pwdAleatoria = () => Array.from(crypto.getRandomValues(new Uint8Array(18)), b => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'[b % 56]).join('');
+const pwdAleatoria = (n=18) => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'[b % 56]).join('');
+// Contraseña inicial legible, tipo "azul-7482-mesa": fácil de dictar y de teclear en el móvil.
+const pwdInicial = () => { const P=['azul','rojo','verde','mesa','sol','luna','rio','mar','pino','olivo','nube','faro','lago','roca','vela','lira']; const r=crypto.getRandomValues(new Uint16Array(3)); return P[r[0]%P.length]+'-'+(1000+r[1]%9000)+'-'+P[r[2]%P.length]; };
 
 // ---------- cálculo de jornadas ----------
 // Agrupa fichajes (ordenados por fecha) por día y calcula minutos trabajados y estado final.
@@ -208,23 +210,32 @@ async function crearEmpresa(id, nombre, horasDia) {
 }
 // Alta de un trabajador: se crea en Firebase Auth con una contraseña aleatoria desde una instancia
 // secundaria (para no cerrar la sesión del gestor) y se le envía el correo para que ponga la suya.
+// Devuelve la contraseña inicial para que el gestor se la dé al empleado (se muestra una sola vez).
 async function crearUsuario(nombre, email, rol) {
   const app2 = initializeApp(firebaseConfig, 'alta-' + Date.now());
   const auth2 = getAuth(app2);
+  const pwd = pwdInicial();
   let cred;
-  try { cred = await createUserWithEmailAndPassword(auth2, email.trim(), pwdAleatoria()); }
+  try { cred = await createUserWithEmailAndPassword(auth2, email.trim(), pwd); }
   catch (e) {
     if (e.code === 'auth/email-already-in-use') throw new Error('Ese correo ya tiene usuario. Si no aparece en la plantilla, avisa al despacho.');
     throw new Error('No se ha podido crear el usuario: ' + e.code);
   }
-  await setDoc(doc(db,'users',cred.user.uid), { nombre: nombre.trim(), email: email.trim(), empresaId: S.empresa.id, rol, alta: serverTimestamp(), altaPor: S.perfil.id });
-  await sendPasswordResetEmail(auth2, email.trim());
+  await setDoc(doc(db,'users',cred.user.uid), { nombre: nombre.trim(), email: email.trim(), empresaId: S.empresa.id, rol, alta: serverTimestamp(), altaPor: S.perfil.id, cambiarPwd: true });
   await signOut(auth2);
   await cargarPlantilla();
+  return pwd;
 }
 async function reenviarPassword(email) {
   await sendPasswordResetEmail(auth, email);
   toast('Correo enviado a ' + email);
+}
+async function cambiarPassword(actual, nueva) {
+  const cred = EmailAuthProvider.credential(S.user.email, actual);
+  try { await reauthenticateWithCredential(S.user, cred); }
+  catch { throw new Error('La contraseña actual no es correcta.'); }
+  await updatePassword(S.user, nueva);
+  if (S.perfil.cambiarPwd) { await updateDoc(doc(db,'users',S.perfil.id), { cambiarPwd: false }); S.perfil.cambiarPwd = false; }
 }
 // Fichaje manual al aprobar una corrección: queda marcado como manual, con quién lo aprobó y la solicitud.
 async function aprobarConFichaje(s, tipo, fecha, hora) {
@@ -309,12 +320,13 @@ function render() {
             + (S.error ? `<div class="error no-print" style="margin-bottom:12px">${esc(S.error)}</div>` : '')
             + (S.ok ? `<div class="aviso no-print" style="margin-bottom:12px;background:var(--verde-bg);color:var(--verde)">${esc(S.ok)}</div>` : '');
   const v = S.vista;
-  const cuerpo = v==='fichar' ? vFichar() : v==='historico' ? vHistorico() : v==='jornada' ? vJornada() : v==='panel' ? vPanel() : v==='empresas' ? vEmpresas() : vCorrecciones();
+  const cuerpo = v==='fichar' ? vFichar() : v==='historico' ? vHistorico() : v==='jornada' ? vJornada() : v==='panel' ? vPanel() : v==='empresas' ? vEmpresas() : v==='cuenta' ? vCuenta() : vCorrecciones();
   const tabs = esAdmin()
-    ? [['panel','Panel'],['correcciones','Correcciones'],['empresas','Empresas'],['fichar','Fichar'],['historico','Histórico']]
+    ? [['panel','Panel'],['correcciones','Correcciones'],['empresas','Empresas'],['fichar','Fichar'],['historico','Histórico'],['cuenta','Cuenta']]
     : esGestor()
-    ? [['panel','Panel'],['correcciones','Correcciones'],['fichar','Fichar'],['historico','Histórico']]
-    : [['fichar','Fichar'],['historico','Histórico']];
+    ? [['panel','Panel'],['correcciones','Correcciones'],['fichar','Fichar'],['historico','Histórico'],['cuenta','Cuenta']]
+    : [['fichar','Fichar'],['historico','Histórico'],['cuenta','Cuenta']];
+  const avisoPwd = S.perfil.cambiarPwd && v!=='cuenta' ? `<div class="aviso no-print" style="margin-bottom:12px">Estás usando la contraseña inicial que te dio tu gestor. <a href="#" data-v="cuenta">Cámbiala ahora</a> por una tuya.</div>` : '';
   const selector = esAdmin()
     ? `<select id="sel-empresa" aria-label="Empresa" style="width:auto;max-width:260px">${S.empresas.map(e=>`<option value="${esc(e.id)}" ${e.id===S.empresa.id?'selected':''}>${esc(e.nombre)}</option>`).join('')}</select>`
     : `<span class="muted">${esc(S.empresa.nombre)}${esGestor()?' · gestor':''}</span>`;
@@ -324,12 +336,52 @@ function render() {
       <div class="col" style="flex:1;min-width:0"><strong style="font-size:14px">${esc(S.perfil.nombre)}${esAdmin()?' <span class="pill azul">despacho</span>':''}</strong>${selector}</div>
       <button class="btn sec" data-a="salir">Salir</button>
     </div></div>
-    <div class="page ${esGestor()&&v!=='fichar'&&v!=='historico'&&v!=='jornada'?'wide':''}">${err}${cuerpo}</div>
+    <div class="page ${esGestor()&&v!=='fichar'&&v!=='historico'&&v!=='jornada'&&v!=='cuenta'?'wide':''}">${err}${avisoPwd}${cuerpo}</div>
     <nav class="tabs no-print">${tabs.map(([k,l])=>`<button data-v="${k}" class="${v===k?'on':''}">${l}</button>`).join('')}</nav>`;
   S.error = ''; S.ok = '';
 }
 
+// Pantalla para crear/restablecer la contraseña. El enlace del correo trae ?mode=resetPassword&oobCode=…
+// El código solo se consume al pulsar el botón, así los escáneres de enlaces del correo no lo invalidan.
+const urlParams = new URLSearchParams(location.search);
+const resetCode = urlParams.get('mode') === 'resetPassword' ? urlParams.get('oobCode') : null;
+function renderReset(email) {
+  app.innerHTML = `<div class="login"><form class="card" id="f-reset">
+    <div class="col"><span class="muted">Registro horario</span><h1>Crea tu contraseña</h1></div>
+    ${email?`<span class="muted">Para la cuenta <strong>${esc(email)}</strong></span>`:''}
+    ${S.error?`<div class="error">${esc(S.error)}</div>`:''}
+    <div class="col"><label for="p1">Nueva contraseña (mínimo 8 caracteres)</label><input id="p1" type="password" autocomplete="new-password" minlength="8" required></div>
+    <div class="col"><label for="p2">Repite la contraseña</label><input id="p2" type="password" autocomplete="new-password" minlength="8" required></div>
+    <button class="btn" type="submit">Guardar contraseña</button>
+  </form></div>`;
+  $('#f-reset').onsubmit = async e => {
+    e.preventDefault(); S.error = '';
+    const p1 = $('#p1').value, p2 = $('#p2').value;
+    if (p1 !== p2) { S.error = 'Las contraseñas no coinciden.'; return renderReset(email); }
+    try {
+      await confirmPasswordReset(auth, resetCode, p1);
+      history.replaceState(null, '', location.pathname);
+      S.ok = 'Contraseña guardada. Ya puedes entrar.'; S.resetDone = true;
+      render();
+    } catch (err) {
+      S.error = err.code === 'auth/expired-action-code' || err.code === 'auth/invalid-action-code'
+        ? 'Este enlace ya no es válido. Pide uno nuevo desde "He olvidado la contraseña".'
+        : err.code === 'auth/weak-password' ? 'La contraseña es demasiado débil.' : 'No se ha podido guardar: ' + err.code;
+      renderReset(email);
+    }
+  };
+}
+async function arrancarReset() {
+  try { const email = await verifyPasswordResetCode(auth, resetCode); renderReset(email); }
+  catch (err) {
+    history.replaceState(null, '', location.pathname);
+    S.error = 'Este enlace de contraseña ya no es válido o ha caducado. Escribe tu correo y pulsa "He olvidado la contraseña" para recibir otro.';
+    S.resetDone = true; render();
+  }
+}
+
 function renderLogin() {
+  if (resetCode && !S.resetDone) return arrancarReset();
   app.innerHTML = `<div class="login"><form class="card" id="f-login">
     <div class="col"><span class="muted">Registro horario</span><h1>Iniciar sesión</h1></div>
     ${S.error?`<div class="error">${esc(S.error)}</div>`:''}
@@ -448,8 +500,12 @@ function vPanel() {
           <div class="col" style="flex:0 1 160px"><label for="alta-rol">Rol</label><select id="alta-rol"><option value="trabajador">Trabajador</option>${esAdmin()?'<option value="gestor">Gestor</option>':''}</select></div>
           <button class="btn" type="submit" style="min-height:44px;font-size:14px">Crear y enviar acceso</button>
         </div>
-        <span class="muted">El empleado recibirá un correo para crear su contraseña. Si no le llega, que mire el spam o usa el botón "Contraseña" de la tabla.</span>
+        <span class="muted">Al crearlo verás su contraseña inicial una sola vez: dásela en mano. En su primer acceso la app le pedirá cambiarla. El botón "Contraseña" de la tabla envía un correo de restablecimiento (vía alternativa).</span>
       </form>
+      ${S.nuevoAcceso ? `<div class="card no-print" style="border:2px solid var(--verde)"><h2 style="color:var(--verde)">Acceso creado</h2>
+        <div class="col" style="gap:6px"><span>Usuario: <strong>${esc(S.nuevoAcceso.email)}</strong></span><span>Contraseña inicial: <strong style="font-size:20px;font-family:monospace;letter-spacing:1px">${esc(S.nuevoAcceso.pwd)}</strong></span>
+        <span class="muted">Apúntala o cópiala ahora: no se volverá a mostrar. Dirección de la app: <strong>${esc(location.origin + location.pathname)}</strong></span></div>
+        <div class="row"><button class="btn sec" data-copiar="${esc(`Acceso al registro horario\nWeb: ${location.origin + location.pathname}\nUsuario: ${S.nuevoAcceso.email}\nContraseña inicial: ${S.nuevoAcceso.pwd}\n(Cámbiala en la pestaña Cuenta al entrar)`)}">Copiar datos de acceso</button><button class="btn sec" data-cerrar-acceso="1">Cerrar</button></div></div>` : ''}
       <div class="card"><h2>Registro detallado del mes (para Inspección)</h2><div class="tabla"><table><thead><tr><th>Trabajador</th><th>Fecha</th><th>Tramos</th><th>Lugar</th><th>Total</th></tr></thead><tbody>
         ${Object.keys(porUid).flatMap(uid=>{ const ds=agruparPorDia(porUid[uid]); return Object.keys(ds).sort().map(k=>`<tr><td>${esc(porUid[uid][0].nombre||uid)}</td><td>${k}</td><td>${tramos(ds[k])}</td><td class="muted">${ds[k].lugar==='remoto'?'Teletrabajo':'Oficina'}</td><td>${ds[k].incidencia?'<span class="pill rojo">sin cerrar</span>':dur(ds[k].minutos)}</td></tr>`); }).join('') || '<tr><td colspan="5" class="muted">Sin fichajes este mes</td></tr>'}
       </tbody></table></div><span class="muted">Documento generado el ${new Date().toLocaleString('es-ES')} desde el sistema de registro horario de ${esc(S.empresa.nombre)}. Los fichajes son inmutables; las correcciones aprobadas constan en el registro de solicitudes.</span></div>
@@ -472,6 +528,19 @@ function vCorrecciones() {
     <div class="aviso" style="margin-top:14px">Los fichajes originales nunca se modifican. Al aprobar, se añade el fichaje que faltaba marcado como <strong>manual</strong>, con quién lo aprobó, cuándo y la solicitud que lo justifica. Así el registro sigue siendo defendible ante una Inspección.</div>`;
 }
 
+function vCuenta() {
+  return `<h1 style="margin-bottom:16px">Mi cuenta</h1>
+    <div class="col" style="gap:14px">
+      <div class="card"><div class="col"><span class="muted">Usuario</span><strong>${esc(S.user.email)}</strong></div><div class="col"><span class="muted">Empresa</span><strong>${esc(S.empresa.nombre)}</strong></div></div>
+      <form class="card" id="f-pwd"><h2>Cambiar contraseña</h2>
+        <div class="col"><label for="pw-actual">Contraseña actual</label><input id="pw-actual" type="password" autocomplete="current-password" required></div>
+        <div class="col"><label for="pw-1">Nueva contraseña (mínimo 8 caracteres)</label><input id="pw-1" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="col"><label for="pw-2">Repite la nueva contraseña</label><input id="pw-2" type="password" autocomplete="new-password" minlength="8" required></div>
+        <button class="btn" type="submit">Guardar</button>
+      </form>
+    </div>`;
+}
+
 function vEmpresas() {
   return `<h1 style="margin-bottom:16px">Empresas</h1>
     <div class="col" style="gap:14px">
@@ -492,10 +561,12 @@ function vEmpresas() {
 
 // ---------- eventos ----------
 app.addEventListener('click', async e => {
-  const b = e.target.closest('[data-v],[data-f],[data-l],[data-m],[data-a],[data-d],[data-s],[data-ap],[data-cancelar],[data-pwd]');
+  const b = e.target.closest('[data-v],[data-f],[data-l],[data-m],[data-a],[data-d],[data-s],[data-ap],[data-cancelar],[data-pwd],[data-copiar],[data-cerrar-acceso]');
   if (!b) return;
   try {
-    if (b.dataset.v) { S.vista = b.dataset.v; S.aprobando = null; if (S.vista==='panel') await cargarPlantilla(); if (S.vista==='correcciones') await cargarSolicitudes(); if (S.vista==='empresas') await cargarEmpresas(); render(); }
+    if (b.dataset.v) { e.preventDefault(); S.vista = b.dataset.v; S.aprobando = null; if (S.vista==='panel') await cargarPlantilla(); if (S.vista==='correcciones') await cargarSolicitudes(); if (S.vista==='empresas') await cargarEmpresas(); render(); }
+    else if (b.dataset.copiar) { await navigator.clipboard.writeText(b.dataset.copiar); toast('Copiado al portapapeles'); }
+    else if (b.dataset.cerrarAcceso) { S.nuevoAcceso = null; render(); }
     else if (b.dataset.f) { b.disabled = true; await fichar(b.dataset.f); }
     else if (b.dataset.l) { S.lugar = b.dataset.l; render(); }
     else if (b.dataset.m) { S.mes = new Date(S.mes.getFullYear(), S.mes.getMonth()+Number(b.dataset.m), 1); suscribirMes(); }
@@ -521,7 +592,11 @@ app.addEventListener('submit', async e => {
   const btn = f.querySelector('button[type="submit"]'); if (btn) btn.disabled = true;
   try {
     if (f.id === 'f-corr') { await solicitarCorreccion(S.diaSel, $('#motivo').value.trim()); f.reset(); }
-    else if (f.id === 'f-alta') { await crearUsuario($('#alta-nombre').value, $('#alta-email').value, $('#alta-rol').value); S.ok = 'Usuario creado. Le hemos enviado el correo para crear su contraseña.'; render(); }
+    else if (f.id === 'f-alta') { const email = $('#alta-email').value.trim(); const pwd = await crearUsuario($('#alta-nombre').value, email, $('#alta-rol').value); S.nuevoAcceso = { email, pwd }; render(); }
+    else if (f.id === 'f-pwd') {
+      if ($('#pw-1').value !== $('#pw-2').value) throw new Error('Las contraseñas nuevas no coinciden.');
+      await cambiarPassword($('#pw-actual').value, $('#pw-1').value); f.reset(); S.ok = 'Contraseña cambiada.'; render();
+    }
     else if (f.id === 'f-empresa') { const id = await crearEmpresa($('#em-id').value, $('#em-nombre').value, $('#em-horas').value); S.ok = `Empresa "${id}" creada. Selecciónala arriba para dar de alta a su gestor.`; render(); }
     else if (f.id === 'f-aprobar') { const s = S.solicitudes.find(x=>x.id===f.dataset.sid); await aprobarConFichaje(s, $('#ap-tipo').value, $('#ap-fecha').value, $('#ap-hora').value); render(); }
   } catch (err) { S.error = err.message || String(err); render(); }
@@ -530,6 +605,7 @@ app.addEventListener('submit', async e => {
 setInterval(() => { if (S.user && S.perfil && (S.vista==='fichar'||S.vista==='panel')) render(); }, 60000);
 
 onAuthStateChanged(auth, async user => {
+  if (user && resetCode && !S.resetDone) { await signOut(auth); return; } // enlace de contraseña abierto con otra sesión activa
   S.user = user; S.perfil = null; S.fichajes = []; if (S.unsub) { S.unsub(); S.unsub = null; }
   if (!user) return render();
   render();
