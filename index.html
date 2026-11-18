@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1D4F91">
+<title>Registro horario</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F4F6F9; --card:#FFFFFF; --ink:#15202B; --muted:#5B6775; --line:#E6EAF0; --line2:#D5DBE3;
+    --azul:#1D4F91; --azul2:#153B6E; --azul-bg:#E3ECF8;
+    --verde:#1B6B3A; --verde-bg:#DDF2E4; --ambar:#8A5A00; --ambar-bg:#FBEFD0; --rojo:#B4232C; --rojo-bg:#F9DEDF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;font-size:15px;-webkit-font-smoothing:antialiased}
+  button,input,select{font-family:inherit;font-size:inherit}
+  button{cursor:pointer}
+  a{color:var(--azul)}
+  .hidden{display:none!important}
+  .app{min-height:100vh;display:flex;flex-direction:column}
+  .page{flex:1;padding:16px;max-width:720px;width:100%;margin:0 auto}
+  .page.wide{max-width:1200px}
+  h1{font-size:22px;margin:0}
+  h2{font-size:15px;margin:0;color:var(--muted);font-weight:600}
+  .card{background:var(--card);border-radius:16px;padding:18px;box-shadow:0 1px 2px rgba(21,32,43,.06);display:flex;flex-direction:column;gap:12px}
+  .row{display:flex;align-items:center;gap:12px}
+  .between{justify-content:space-between}
+  .col{display:flex;flex-direction:column;gap:4px}
+  .muted{color:var(--muted);font-size:13px}
+  .big{font-size:44px;font-weight:700;letter-spacing:-1px;line-height:1}
+  .pill{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap}
+  .pill.gris{color:var(--muted);background:var(--line)} .pill.verde{color:var(--verde);background:var(--verde-bg)}
+  .pill.ambar{color:var(--ambar);background:var(--ambar-bg)} .pill.rojo{color:var(--rojo);background:var(--rojo-bg)} .pill.azul{color:var(--azul);background:var(--azul-bg)}
+  .btn{min-height:48px;border:0;border-radius:14px;padding:0 18px;font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:center;gap:10px;background:var(--azul);color:#fff}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn.xl{min-height:72px;font-size:20px;font-weight:700}
+  .btn.rojo{background:var(--rojo)} .btn.verde{background:var(--verde)}
+  .btn.ghost{background:#fff;border:2px solid var(--azul);color:var(--azul)}
+  .btn.ghost.rojo{border-color:var(--rojo);color:var(--rojo)}
+  .btn.sec{background:#fff;border:1px solid var(--line2);color:var(--ink);font-size:14px;min-height:44px}
+  .seg{display:flex;background:var(--line);border-radius:12px;padding:4px;gap:4px}
+  .seg button{flex:1;min-height:44px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-weight:600}
+  .seg button.on{background:#fff;color:var(--ink)}
+  .list{display:flex;flex-direction:column}
+  .item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);min-height:56px;text-decoration:none;color:inherit}
+  .item:last-child{border-bottom:0}
+  .dia{width:44px;display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+  .dia .dow{font-size:11px;color:var(--muted);text-transform:uppercase} .dia .num{font-size:17px;font-weight:700}
+  .tot{font-weight:700;font-variant-numeric:tabular-nums;margin-left:auto}
+  .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  .kpis.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+  @media (max-width:640px){.kpis.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .kpi{background:var(--card);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:4px}
+  .kpi .v{font-size:20px;font-weight:700}
+  nav.tabs{display:flex;justify-content:space-around;background:#fff;border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+  nav.tabs button{background:none;border:0;color:var(--muted);font-size:11px;font-weight:500;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:64px;min-height:44px;justify-content:center}
+  nav.tabs button.on{color:var(--azul);font-weight:600}
+  label{font-size:13px;font-weight:600;color:var(--muted)}
+  input,select{min-height:44px;border:1px solid var(--line2);border-radius:10px;padding:0 12px;background:#fff;width:100%}
+  textarea{font-family:inherit;font-size:inherit;border:1px solid var(--line2);border-radius:10px;padding:10px 12px;width:100%;min-height:80px}
+  .aviso{background:var(--ambar-bg);color:#5B4000;border-radius:14px;padding:12px 16px;font-size:13px;line-height:1.4}
+  .error{background:var(--rojo-bg);color:var(--rojo);border-radius:10px;padding:10px 14px;font-size:14px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;color:var(--muted);font-size:12px;font-weight:600;padding:8px 10px}
+  td{padding:10px;border-top:1px solid var(--line);vertical-align:middle}
+  .tabla{overflow-x:auto}
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .timeline{display:flex;flex-direction:column}
+  .tl{display:flex;gap:14px}
+  .tl .dot{width:14px;display:flex;flex-direction:column;align-items:center}
+  .tl .dot span{width:10px;height:10px;border-radius:5px;margin-top:6px}
+  .tl .dot i{flex:1;width:2px;background:var(--line);margin-top:4px}
+  .tl .body{flex:1;display:flex;justify-content:space-between;padding-bottom:16px}
+  .topbar{background:#fff;border-bottom:1px solid var(--line);padding:12px 16px}
+  .topbar .in{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .avatar{width:36px;height:36px;border-radius:18px;background:var(--azul);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0}
+  .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+  .login .card{width:100%;max-width:380px}
+  .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.on{opacity:1}
+  @media print{
+    body{background:#fff}
+    .no-print, nav.tabs, .topbar{display:none!important}
+    .page{max-width:none;padding:0}
+    .card{box-shadow:none;border:1px solid #ccc;border-radius:0}
+  }
+</style>
+</head>
+<body>
+<div id="app" class="app"></div>
+<div id="toast" class="toast"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ====== 1. CONFIGURACIÓN: pega aquí la de tu proyecto Firebase (Consola > Configuración del proyecto > Tus apps) ======
+const firebaseConfig = {
+  apiKey: "AIzaSyBqAQXnUEqy_jf3lTrL4K3FvNKgfZdR8xw",
+  authDomain: "registro-horario-51294.firebaseapp.com",
+  projectId: "registro-horario-51294",
+  storageBucket: "registro-horario-51294.firebasestorage.app",
+  messagingSenderId: "113547129055",
+  appId: "1:113547129055:web:a2957898bb33d0ccf0796a"
+};
+// =====================================================================================================================
+
+const fb = initializeApp(firebaseConfig);
+const auth = getAuth(fb);
+const db = getFirestore(fb);
+
+// ---------- estado ----------
+const S = {
+  user: null,        // Firebase user
+  perfil: null,      // users/{uid}: {nombre, empresaId, rol}
+  empresa: null,     // empresas/{empresaId}
+  vista: 'fichar',   // fichar | historico | jornada | panel | correcciones
+  lugar: 'oficina',
+  mes: new Date(),   // mes mostrado en histórico
+  fichajes: [],      // del usuario (mes) o de la empresa (gestor, hoy/mes)
+  diaSel: null,      // 'YYYY-MM-DD'
+  unsub: null,
+  plantilla: [],     // gestor: usuarios de la empresa
+  solicitudes: [],
+  error: ''
+};
+
+const $ = (s, el=document) => el.querySelector(s);
+const app = $('#app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2,'0');
+const hhmm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+const ymd = d => d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+const dur = min => (min<0?'−':'') + Math.floor(Math.abs(min)/60) + ':' + pad(Math.abs(min)%60);
+const DOW = ['dom','lun','mar','mié','jue','vie','sáb'];
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const TIPOS = { entrada:'Entrada', pausa:'Inicio de pausa', reanudar:'Fin de pausa', salida:'Salida' };
+const COLOR = { entrada:'var(--verde)', pausa:'var(--ambar)', reanudar:'var(--verde)', salida:'var(--rojo)' };
+const toast = m => { const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2200); };
+const esGestor = () => S.perfil && (S.perfil.rol === 'gestor' || S.perfil.rol === 'admin');
+
+// ---------- cálculo de jornadas ----------
+// Agrupa fichajes (ordenados por fecha) por día y calcula minutos trabajados y estado final.
+function agruparPorDia(fichajes) {
+  const dias = {};
+  for (const f of fichajes) {
+    const d = f.ts.toDate();
+    const k = ymd(d);
+    (dias[k] ||= { fecha:k, eventos:[], minutos:0, estado:'fuera', lugar:f.lugar, incidencia:false }).eventos.push({ ...f, d });
+  }
+  const hoy = ymd(new Date());
+  for (const k in dias) {
+    const dia = dias[k];
+    let estado = 'fuera', desde = null, min = 0;
+    for (const e of dia.eventos) {
+      if (e.tipo === 'entrada' || e.tipo === 'reanudar') { if (estado !== 'trabajando') { desde = e.d; estado = 'trabajando'; } }
+      else if (e.tipo === 'pausa' || e.tipo === 'salida') { if (estado === 'trabajando' && desde) { min += (e.d - desde) / 60000; } estado = e.tipo === 'pausa' ? 'pausa' : 'fuera'; desde = null; }
+    }
+    if (estado === 'trabajando' && desde) { if (k === hoy) min += (Date.now() - desde) / 60000; else dia.incidencia = true; }
+    if (estado === 'pausa' && k !== hoy) dia.incidencia = true;
+    dia.minutos = Math.round(min); dia.estado = estado;
+    dia.lugar = dia.eventos.find(e=>e.tipo==='entrada')?.lugar || dia.lugar;
+  }
+  return dias;
+}
+function tramos(dia) {
+  const out = []; let ini = null;
+  for (const e of dia.eventos) {
+    if ((e.tipo==='entrada'||e.tipo==='reanudar') && !ini) ini = hhmm(e.d);
+    if ((e.tipo==='pausa'||e.tipo==='salida') && ini) { out.push(ini+' – '+hhmm(e.d)); ini = null; }
+  }
+  if (ini) out.push(ini + ' – en curso');
+  return out.join(' · ') || 'Sin tramos';
+}
+
+// ---------- datos ----------
+async function cargarPerfil(uid) {
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (!snap.exists()) throw new Error('Tu usuario no está dado de alta en ninguna empresa. Avisa al gestor.');
+  S.perfil = { id: uid, ...snap.data() };
+  const emp = await getDoc(doc(db, 'empresas', S.perfil.empresaId));
+  S.empresa = emp.exists() ? { id: emp.id, ...emp.data() } : { id: S.perfil.empresaId, nombre: S.perfil.empresaId };
+}
+function suscribirMes() {
+  if (S.unsub) S.unsub();
+  const ini = new Date(S.mes.getFullYear(), S.mes.getMonth(), 1);
+  const fin = new Date(S.mes.getFullYear(), S.mes.getMonth()+1, 1);
+  const base = [collection(db,'fichajes'), where('empresaId','==',S.perfil.empresaId),
+    where('ts','>=',Timestamp.fromDate(ini)), where('ts','<',Timestamp.fromDate(fin)), orderBy('ts','asc')];
+  const q = esGestor() ? query(...base) : query(base[0], where('uid','==',S.perfil.id), ...base.slice(1));
+  S.unsub = onSnapshot(q, snap => {
+      S.errorLectura = '';
+      S.fichajes = snap.docs.map(d => ({ id:d.id, ...d.data({ serverTimestamps:'estimate' }) })).filter(f=>f.ts);
+      render();
+    },
+    err => {
+      // Típico al principio: el índice de Firestore aún se está creando. Reintentamos solos.
+      S.errorLectura = 'No se pueden leer los fichajes todavía (' + err.code + '). Reintentando…';
+      render();
+      clearTimeout(S.retry); S.retry = setTimeout(suscribirMes, 8000);
+    });
+}
+async function cargarPlantilla() {
+  const q = query(collection(db,'users'), where('empresaId','==',S.perfil.empresaId));
+  S.plantilla = (await getDocs(q)).docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+}
+async function cargarSolicitudes() {
+  const q = query(collection(db,'solicitudes'), where('empresaId','==',S.perfil.empresaId), where('estado','==','pendiente'));
+  S.solicitudes = (await getDocs(q)).docs.map(d => ({ id:d.id, ...d.data() }));
+}
+async function fichar(tipo) {
+  const data = { uid:S.perfil.id, nombre:S.perfil.nombre, empresaId:S.perfil.empresaId, tipo, lugar:S.lugar, ts:serverTimestamp(), origen:'web' };
+  if (tipo === 'entrada' && navigator.geolocation) {
+    // Geolocalización opcional: si el usuario la concede, se guarda; si no, se ficha igual.
+    await new Promise(res => navigator.geolocation.getCurrentPosition(
+      p => { data.geo = { lat:p.coords.latitude, lng:p.coords.longitude, prec:Math.round(p.coords.accuracy) }; res(); },
+      () => res(), { timeout: 4000, maximumAge: 60000 }));
+  }
+  try { await addDoc(collection(db,'fichajes'), data); toast(TIPOS[tipo] + ' registrada a las ' + hhmm(new Date())); }
+  catch (e) { S.error = 'No se ha podido fichar: ' + e.message; render(); }
+}
+async function solicitarCorreccion(fecha, motivo) {
+  await addDoc(collection(db,'solicitudes'), { uid:S.perfil.id, nombre:S.perfil.nombre, empresaId:S.perfil.empresaId, fecha, motivo, estado:'pendiente', creada:serverTimestamp() });
+  toast('Solicitud enviada al gestor');
+}
+async function resolverSolicitud(id, estado) {
+  await updateDoc(doc(db,'solicitudes',id), { estado, resueltaPor:S.perfil.id, resueltaEn:serverTimestamp() });
+  await cargarSolicitudes(); render();
+}
+
+// ---------- exportación ----------
+function exportarCSV() {
+  const dias = agruparPorDia(S.fichajes);
+  const filas = [['Empresa','Trabajador','Fecha','Tipo','Hora','Lugar','Lat','Lng']];
+  for (const f of S.fichajes) { const d=f.ts.toDate(); filas.push([S.empresa.nombre, f.nombre||f.uid, ymd(d), TIPOS[f.tipo]||f.tipo, hhmm(d), f.lugar==='remoto'?'Teletrabajo':'Oficina', f.geo?.lat??'', f.geo?.lng??'']); }
+  filas.push([]); filas.push(['Resumen por día']); filas.push(['Trabajador','Fecha','Tramos','Minutos','Horas']);
+  // resumen por trabajador y día
+  const porUid = {};
+  for (const f of S.fichajes) (porUid[f.uid] ||= []).push(f);
+  for (const uid in porUid) { const ds = agruparPorDia(porUid[uid]); for (const k of Object.keys(ds).sort()) filas.push([porUid[uid][0].nombre||uid, k, tramos(ds[k]), ds[k].minutos, dur(ds[k].minutos)]); }
+  const csv = '﻿' + filas.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(';')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download = `registro_horario_${S.empresa.nombre.replace(/\W+/g,'_')}_${S.mes.getFullYear()}-${pad(S.mes.getMonth()+1)}.csv`; a.click();
+}
+
+// ---------- vistas ----------
+function render() {
+  if (!S.user) return renderLogin();
+  if (!S.perfil) return (app.innerHTML = '<div class="login"><div class="card">Cargando…</div></div>');
+  const err = (S.errorLectura ? `<div class="error no-print" style="margin-bottom:12px">${esc(S.errorLectura)}</div>` : '')
+            + (S.error ? `<div class="error no-print" style="margin-bottom:12px">${esc(S.error)}</div>` : '');
+  const v = S.vista;
+  const cuerpo = v==='fichar' ? vFichar() : v==='historico' ? vHistorico() : v==='jornada' ? vJornada() : v==='panel' ? vPanel() : vCorrecciones();
+  const tabs = esGestor()
+    ? [['panel','Panel'],['correcciones','Correcciones'],['fichar','Fichar'],['historico','Histórico']]
+    : [['fichar','Fichar'],['historico','Histórico']];
+  app.innerHTML = `
+    <div class="topbar no-print"><div class="in">
+      <div class="avatar">${esc(S.perfil.nombre.split(' ').map(p=>p[0]).join('').slice(0,2).toUpperCase())}</div>
+      <div class="col" style="flex:1;min-width:0"><strong style="font-size:14px">${esc(S.perfil.nombre)}</strong><span class="muted">${esc(S.empresa.nombre)}${esGestor()?' · gestor':''}</span></div>
+      <button class="btn sec" data-a="salir">Salir</button>
+    </div></div>
+    <div class="page ${esGestor()&&(v==='panel'||v==='correcciones')?'wide':''}">${err}${cuerpo}</div>
+    <nav class="tabs no-print">${tabs.map(([k,l])=>`<button data-v="${k}" class="${v===k?'on':''}">${l}</button>`).join('')}</nav>`;
+  S.error = '';
+}
+
+function renderLogin() {
+  app.innerHTML = `<div class="login"><form class="card" id="f-login">
+    <div class="col"><span class="muted">Registro horario</span><h1>Iniciar sesión</h1></div>
+    ${S.error?`<div class="error">${esc(S.error)}</div>`:''}
+    <div class="col"><label for="email">Correo</label><input id="email" type="email" autocomplete="username" required></div>
+    <div class="col"><label for="pass">Contraseña</label><input id="pass" type="password" autocomplete="current-password" required></div>
+    <button class="btn" type="submit">Entrar</button>
+    <span class="muted">¿Sin acceso? Pídeselo al gestor de tu empresa.</span>
+  </form></div>`;
+  $('#f-login').onsubmit = async e => { e.preventDefault(); S.error=''; try { await signInWithEmailAndPassword(auth, $('#email').value.trim(), $('#pass').value); } catch { S.error='Correo o contraseña incorrectos.'; render(); } };
+}
+
+function vFichar() {
+  const hoyK = ymd(new Date());
+  const mios = S.fichajes.filter(f => f.uid === S.perfil.id);
+  const dia = agruparPorDia(mios)[hoyK] || { eventos:[], minutos:0, estado:'fuera' };
+  const e = dia.estado;
+  const estado = { fuera:['Fuera de jornada','gris'], trabajando:['En jornada','verde'], pausa:['En pausa','ambar'] }[e];
+  const entrada = dia.eventos.find(x=>x.tipo==='entrada');
+  const pausas = dia.eventos.filter(x=>x.tipo==='pausa').length;
+  const d = new Date();
+  const botones = e==='fuera'
+    ? `<button class="btn xl" data-f="entrada">Fichar entrada</button>`
+    : e==='trabajando'
+    ? `<button class="btn ghost" data-f="pausa" style="min-height:60px">Iniciar pausa</button><button class="btn xl rojo" data-f="salida">Fichar salida</button>`
+    : `<button class="btn xl" data-f="reanudar">Reanudar jornada</button><button class="btn ghost rojo" data-f="salida" style="min-height:60px">Fichar salida</button>`;
+  return `
+    <div class="col" style="margin-bottom:16px"><span class="muted">${DOW[d.getDay()]==='dom'?'Domingo':['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][d.getDay()]}, ${d.getDate()} de ${MESES[d.getMonth()]}</span><h1>Hola, ${esc(S.perfil.nombre.split(' ')[0])}</h1></div>
+    <div class="col" style="gap:16px">
+      <div class="card">
+        <div class="row between"><span class="muted">Estado</span><span class="pill ${estado[1]}">${estado[0]}</span></div>
+        <div class="row" style="align-items:baseline;gap:8px"><span class="big">${dur(dia.minutos)}</span><span class="muted">trabajadas hoy</span></div>
+        <div class="row muted" style="font-size:13px"><span>Entrada <strong style="color:var(--ink)">${entrada?hhmm(entrada.d):'—'}</strong></span><span>·</span><span>Pausas <strong style="color:var(--ink)">${pausas}</strong></span></div>
+      </div>
+      ${e==='fuera'?`<div class="col" style="gap:8px"><label>¿Desde dónde trabajas?</label><div class="seg">
+        <button data-l="oficina" class="${S.lugar==='oficina'?'on':''}">Oficina</button><button data-l="remoto" class="${S.lugar==='remoto'?'on':''}">Teletrabajo</button></div></div>`:''}
+      <div class="col" style="gap:12px">${botones}</div>
+      <div class="card"><h2>Hoy</h2><div class="list">${dia.eventos.length? dia.eventos.map(x=>`<div class="item" style="min-height:40px;padding:8px 0"><span>${TIPOS[x.tipo]}${x.tipo==='entrada'?' · '+(x.lugar==='remoto'?'Teletrabajo':'Oficina'):''}</span><span class="tot" style="font-weight:500;color:var(--muted)">${hhmm(x.d)}</span></div>`).join('') : '<span class="muted">Sin fichajes todavía</span>'}</div></div>
+    </div>`;
+}
+
+function vHistorico() {
+  const mios = S.fichajes.filter(f => f.uid === S.perfil.id);
+  const dias = agruparPorDia(mios);
+  const keys = Object.keys(dias).sort().reverse();
+  const total = keys.reduce((a,k)=>a+dias[k].minutos,0);
+  const horasDia = S.empresa.horasDia ?? 8;
+  const previstas = keys.filter(k=>{ const d=new Date(k); return d.getDay()>0 && d.getDay()<6; }).length * horasDia * 60;
+  const saldo = total - previstas;
+  return `
+    <div class="row between" style="margin-bottom:16px"><h1>Histórico</h1>
+      <div class="row" style="gap:6px"><button class="btn sec" data-m="-1" aria-label="Mes anterior">‹</button><strong style="min-width:110px;text-align:center;font-size:14px">${MESES[S.mes.getMonth()]} ${S.mes.getFullYear()}</strong><button class="btn sec" data-m="1" aria-label="Mes siguiente">›</button></div></div>
+    <div class="col" style="gap:14px">
+      <div class="kpis"><div class="kpi"><span class="muted">Trabajadas</span><span class="v">${dur(total)}</span></div><div class="kpi"><span class="muted">Previstas*</span><span class="v">${dur(previstas)}</span></div><div class="kpi"><span class="muted">Saldo</span><span class="v" style="color:${saldo<0?'var(--rojo)':saldo>0?'var(--verde)':'inherit'}">${dur(saldo)}</span></div></div>
+      <div class="card"><div class="list">${keys.length? keys.map(k=>{ const d=dias[k], dt=new Date(k); return `<a href="#" class="item" data-d="${k}">
+        <div class="dia"><span class="dow">${DOW[dt.getDay()]}</span><span class="num">${dt.getDate()}</span></div>
+        <div class="col" style="flex:1;min-width:0"><span style="font-weight:500">${d.incidencia?'Jornada sin cerrar':tramos(d)}</span><span class="muted">${d.lugar==='remoto'?'Teletrabajo':'Oficina'}${d.incidencia?' · pendiente de corregir':''}</span></div>
+        <span class="tot" style="color:${d.incidencia?'var(--rojo)':d.estado==='trabajando'?'var(--verde)':'inherit'}">${d.incidencia?'!':dur(d.minutos)}</span></a>`; }).join('') : '<span class="muted">Sin fichajes este mes</span>'}</div></div>
+      <button class="btn ghost no-print" data-a="print">Descargar registro del mes (PDF)</button>
+      <span class="muted">* Previstas = días laborables con fichajes × ${horasDia} h. El gestor puede ajustar las horas/día de la empresa.</span>
+    </div>`;
+}
+
+function vJornada() {
+  const k = S.diaSel; const dt = new Date(k);
+  const mios = S.fichajes.filter(f => f.uid === S.perfil.id);
+  const dia = agruparPorDia(mios)[k];
+  if (!dia) { S.vista='historico'; return vHistorico(); }
+  return `
+    <div class="row" style="margin-bottom:16px"><button class="btn sec" data-v="historico" aria-label="Volver">‹</button>
+      <div class="col"><span class="muted">${['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][dt.getDay()]}</span><h1 style="font-size:20px">${dt.getDate()} de ${MESES[dt.getMonth()]} de ${dt.getFullYear()}</h1></div></div>
+    <div class="col" style="gap:14px">
+      <div class="card row between"><div class="col"><span class="muted">Total trabajado</span><span style="font-size:30px;font-weight:700">${dur(dia.minutos)}</span></div><div class="col" style="align-items:flex-end"><span class="muted">Lugar</span><span class="pill azul">${dia.lugar==='remoto'?'Teletrabajo':'Oficina'}</span></div></div>
+      <div class="card"><h2>Fichajes</h2><div class="timeline">${dia.eventos.map((e,i)=>`<div class="tl"><div class="dot"><span style="background:${COLOR[e.tipo]}"></span>${i<dia.eventos.length-1?'<i></i>':''}</div>
+        <div class="body"><div class="col"><strong>${TIPOS[e.tipo]}</strong><span class="muted">${e.lugar==='remoto'?'Teletrabajo':'Oficina'}${e.geo?` · ubicación registrada (±${e.geo.prec} m)`:''}</span></div><strong style="font-variant-numeric:tabular-nums">${hhmm(e.d)}</strong></div></div>`).join('')}</div></div>
+      <div class="aviso">Los fichajes no se pueden borrar ni editar. Si hay un error, solicita una corrección: quedará registrada con quién la aprobó y cuándo.</div>
+      <form class="card no-print" id="f-corr"><h2>Solicitar corrección</h2><textarea id="motivo" placeholder="Ej.: olvidé fichar la salida a las 18:00" required></textarea><button class="btn ghost" type="submit">Enviar solicitud</button></form>
+    </div>`;
+}
+
+function vPanel() {
+  const hoyK = ymd(new Date());
+  const porUid = {}; for (const f of S.fichajes) (porUid[f.uid] ||= []).push(f);
+  const filas = S.plantilla.map(u => {
+    const dias = agruparPorDia(porUid[u.id] || []);
+    const hoy = dias[hoyK];
+    const mes = Object.values(dias).reduce((a,d)=>a+d.minutos,0);
+    const incid = Object.values(dias).some(d=>d.incidencia);
+    const est = incid ? ['Incidencia','rojo'] : !hoy ? ['Fuera','gris'] : { fuera:['Fuera','gris'], trabajando:['En jornada','verde'], pausa:['En pausa','ambar'] }[hoy.estado];
+    return { u, hoy, mes, est, incid };
+  });
+  const enJornada = filas.filter(f=>f.hoy?.estado==='trabajando').length;
+  const remoto = filas.filter(f=>f.hoy?.lugar==='remoto').length;
+  const incid = filas.filter(f=>f.incid).length;
+  return `
+    <div class="row between" style="margin-bottom:16px;flex-wrap:wrap">
+      <div class="col"><span class="muted">${esc(S.empresa.nombre)} · ${MESES[S.mes.getMonth()]} ${S.mes.getFullYear()}</span><h1>Panel</h1></div>
+      <div class="toolbar no-print"><button class="btn sec" data-m="-1">‹ Mes</button><button class="btn sec" data-m="1">Mes ›</button><button class="btn sec" data-a="csv">Exportar mes (CSV/Excel)</button><button class="btn" style="min-height:44px;font-size:14px" data-a="print">Informe para Inspección (PDF)</button></div></div>
+    <div class="col" style="gap:16px">
+      <div class="kpis four"><div class="kpi"><span class="muted">Empleados</span><span class="v">${S.plantilla.length}</span></div><div class="kpi"><span class="muted">En jornada ahora</span><span class="v" style="color:var(--verde)">${enJornada}</span></div><div class="kpi"><span class="muted">Teletrabajo hoy</span><span class="v">${remoto}</span></div><div class="kpi"><span class="muted">Incidencias</span><span class="v" style="color:var(--rojo)">${incid}</span></div></div>
+      <div class="card"><h2>Plantilla</h2><div class="tabla"><table><thead><tr><th>Empleado</th><th>Estado</th><th>Lugar hoy</th><th>Entrada</th><th>Hoy</th><th>Mes</th></tr></thead><tbody>
+        ${filas.map(f=>`<tr><td><strong>${esc(f.u.nombre)}</strong></td><td><span class="pill ${f.est[1]}">${f.est[0]}</span></td><td class="muted">${f.hoy?(f.hoy.lugar==='remoto'?'Teletrabajo':'Oficina'):'—'}</td><td>${f.hoy?.eventos[0]?hhmm(f.hoy.eventos[0].d):'—'}</td><td>${f.hoy?dur(f.hoy.minutos):'—'}</td><td>${dur(f.mes)}</td></tr>`).join('')}
+      </tbody></table></div></div>
+      <div class="card"><h2>Registro detallado del mes (para Inspección)</h2><div class="tabla"><table><thead><tr><th>Trabajador</th><th>Fecha</th><th>Tramos</th><th>Lugar</th><th>Total</th></tr></thead><tbody>
+        ${Object.keys(porUid).flatMap(uid=>{ const ds=agruparPorDia(porUid[uid]); return Object.keys(ds).sort().map(k=>`<tr><td>${esc(porUid[uid][0].nombre||uid)}</td><td>${k}</td><td>${tramos(ds[k])}</td><td class="muted">${ds[k].lugar==='remoto'?'Teletrabajo':'Oficina'}</td><td>${ds[k].incidencia?'<span class="pill rojo">sin cerrar</span>':dur(ds[k].minutos)}</td></tr>`); }).join('') || '<tr><td colspan="5" class="muted">Sin fichajes este mes</td></tr>'}
+      </tbody></table></div><span class="muted">Documento generado el ${new Date().toLocaleString('es-ES')} desde el sistema de registro horario de ${esc(S.empresa.nombre)}. Los fichajes son inmutables; las correcciones aprobadas constan en el registro de solicitudes.</span></div>
+    </div>`;
+}
+
+function vCorrecciones() {
+  return `<h1 style="margin-bottom:16px">Correcciones pendientes</h1>
+    <div class="card"><div class="list">${S.solicitudes.length? S.solicitudes.map(s=>`<div class="item" style="flex-wrap:wrap"><div class="col" style="flex:1;min-width:200px"><strong>${esc(s.nombre)} · ${s.fecha}</strong><span class="muted">${esc(s.motivo)}</span></div>
+      <div class="row"><button class="btn sec" data-s="${s.id}" data-e="rechazada">Rechazar</button><button class="btn verde" style="min-height:44px;font-size:14px" data-s="${s.id}" data-e="aprobada">Aprobar</button></div></div>`).join('') : '<span class="muted">No hay solicitudes pendientes</span>'}</div></div>
+    <div class="aviso" style="margin-top:14px">Aprobar una solicitud deja constancia de quién y cuándo. El fichaje corregido se añade a mano como nuevo fichaje (p. ej. una salida) desde la consola de Firebase o por el propio trabajador al día siguiente; los originales nunca se modifican.</div>`;
+}
+
+// ---------- eventos ----------
+app.addEventListener('click', async e => {
+  const b = e.target.closest('[data-v],[data-f],[data-l],[data-m],[data-a],[data-d],[data-s]');
+  if (!b) return;
+  if (b.dataset.v) { S.vista = b.dataset.v; if (S.vista==='panel') await cargarPlantilla(); if (S.vista==='correcciones') await cargarSolicitudes(); render(); }
+  else if (b.dataset.f) { b.disabled = true; await fichar(b.dataset.f); }
+  else if (b.dataset.l) { S.lugar = b.dataset.l; render(); }
+  else if (b.dataset.m) { S.mes = new Date(S.mes.getFullYear(), S.mes.getMonth()+Number(b.dataset.m), 1); suscribirMes(); }
+  else if (b.dataset.d) { e.preventDefault(); S.diaSel = b.dataset.d; S.vista='jornada'; render(); }
+  else if (b.dataset.s) { await resolverSolicitud(b.dataset.s, b.dataset.e); }
+  else if (b.dataset.a==='salir') { await signOut(auth); }
+  else if (b.dataset.a==='csv') { exportarCSV(); }
+  else if (b.dataset.a==='print') { window.print(); }
+});
+app.addEventListener('submit', async e => {
+  if (e.target.id === 'f-corr') { e.preventDefault(); await solicitarCorreccion(S.diaSel, $('#motivo').value.trim()); e.target.reset(); }
+});
+setInterval(() => { if (S.user && S.perfil && (S.vista==='fichar'||S.vista==='panel')) render(); }, 60000);
+
+onAuthStateChanged(auth, async user => {
+  S.user = user; S.perfil = null; S.fichajes = []; if (S.unsub) { S.unsub(); S.unsub = null; }
+  if (!user) return render();
+  render();
+  try { await cargarPerfil(user.uid); S.vista = esGestor() ? 'panel' : 'fichar'; if (esGestor()) await cargarPlantilla(); suscribirMes(); }
+  catch (err) { S.error = err.message; S.perfil = null; await signOut(auth); render(); }
+});
+</script>
+</body>
+</html>
