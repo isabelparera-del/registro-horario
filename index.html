@@ -94,8 +94,8 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ====== 1. CONFIGURACIÓN: pega aquí la de tu proyecto Firebase (Consola > Configuración del proyecto > Tus apps) ======
 const firebaseConfig = {
@@ -125,7 +125,10 @@ const S = {
   unsub: null,
   plantilla: [],     // gestor: usuarios de la empresa
   solicitudes: [],
-  error: ''
+  empresas: [],      // admin: todas las empresas (para el selector)
+  aprobando: null,   // id de la solicitud cuyo formulario de fichaje manual está abierto
+  error: '',
+  ok: ''
 };
 
 const $ = (s, el=document) => el.querySelector(s);
@@ -141,6 +144,8 @@ const TIPOS = { entrada:'Entrada', pausa:'Inicio de pausa', reanudar:'Fin de pau
 const COLOR = { entrada:'var(--verde)', pausa:'var(--ambar)', reanudar:'var(--verde)', salida:'var(--rojo)' };
 const toast = m => { const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2200); };
 const esGestor = () => S.perfil && (S.perfil.rol === 'gestor' || S.perfil.rol === 'admin');
+const esAdmin = () => S.perfil && S.perfil.rol === 'admin';
+const pwdAleatoria = () => Array.from(crypto.getRandomValues(new Uint8Array(18)), b => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'[b % 56]).join('');
 
 // ---------- cálculo de jornadas ----------
 // Agrupa fichajes (ordenados por fecha) por día y calcula minutos trabajados y estado final.
@@ -181,14 +186,64 @@ async function cargarPerfil(uid) {
   const snap = await getDoc(doc(db, 'users', uid));
   if (!snap.exists()) throw new Error('Tu usuario no está dado de alta en ninguna empresa. Avisa al gestor.');
   S.perfil = { id: uid, ...snap.data() };
-  const emp = await getDoc(doc(db, 'empresas', S.perfil.empresaId));
-  S.empresa = emp.exists() ? { id: emp.id, ...emp.data() } : { id: S.perfil.empresaId, nombre: S.perfil.empresaId };
+  if (esAdmin()) await cargarEmpresas();
+  await seleccionarEmpresa(S.perfil.empresaId);
+}
+async function cargarEmpresas() {
+  S.empresas = (await getDocs(collection(db,'empresas'))).docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+}
+async function seleccionarEmpresa(id) {
+  const emp = await getDoc(doc(db, 'empresas', id));
+  S.empresa = emp.exists() ? { id: emp.id, ...emp.data() } : { id, nombre: id };
+  S.plantilla = []; S.solicitudes = []; S.fichajes = [];
+  if (esGestor()) { await cargarPlantilla(); await cargarSolicitudes(); }
+}
+async function crearEmpresa(id, nombre, horasDia) {
+  id = id.trim().toLowerCase().replace(/[^a-z0-9-]/g,'');
+  if (!id) throw new Error('El identificador solo puede tener letras, números y guiones.');
+  if ((await getDoc(doc(db,'empresas',id))).exists()) throw new Error('Ya existe una empresa con ese identificador.');
+  await setDoc(doc(db,'empresas',id), { nombre: nombre.trim(), horasDia: Number(horasDia) || 8, creada: serverTimestamp() });
+  await cargarEmpresas();
+  return id;
+}
+// Alta de un trabajador: se crea en Firebase Auth con una contraseña aleatoria desde una instancia
+// secundaria (para no cerrar la sesión del gestor) y se le envía el correo para que ponga la suya.
+async function crearUsuario(nombre, email, rol) {
+  const app2 = initializeApp(firebaseConfig, 'alta-' + Date.now());
+  const auth2 = getAuth(app2);
+  let cred;
+  try { cred = await createUserWithEmailAndPassword(auth2, email.trim(), pwdAleatoria()); }
+  catch (e) {
+    if (e.code === 'auth/email-already-in-use') throw new Error('Ese correo ya tiene usuario. Si no aparece en la plantilla, avisa al despacho.');
+    throw new Error('No se ha podido crear el usuario: ' + e.code);
+  }
+  await setDoc(doc(db,'users',cred.user.uid), { nombre: nombre.trim(), email: email.trim(), empresaId: S.empresa.id, rol, alta: serverTimestamp(), altaPor: S.perfil.id });
+  await sendPasswordResetEmail(auth2, email.trim());
+  await signOut(auth2);
+  await cargarPlantilla();
+}
+async function reenviarPassword(email) {
+  await sendPasswordResetEmail(auth, email);
+  toast('Correo enviado a ' + email);
+}
+// Fichaje manual al aprobar una corrección: queda marcado como manual, con quién lo aprobó y la solicitud.
+async function aprobarConFichaje(s, tipo, fecha, hora) {
+  const ts = new Date(fecha + 'T' + hora + ':00');
+  if (isNaN(ts)) throw new Error('Fecha u hora no válidas.');
+  const ref = await addDoc(collection(db,'fichajes'), {
+    uid: s.uid, nombre: s.nombre, empresaId: s.empresaId, tipo, lugar: 'oficina',
+    ts: Timestamp.fromDate(ts), origen: 'manual', manual: true, aprobadoPor: S.perfil.id, solicitudId: s.id
+  });
+  await updateDoc(doc(db,'solicitudes',s.id), { estado:'aprobada', resueltaPor:S.perfil.id, resueltaEn:serverTimestamp(), fichajeId: ref.id });
+  S.aprobando = null;
+  await cargarSolicitudes();
+  toast('Corrección aprobada y fichaje añadido');
 }
 function suscribirMes() {
   if (S.unsub) S.unsub();
   const ini = new Date(S.mes.getFullYear(), S.mes.getMonth(), 1);
   const fin = new Date(S.mes.getFullYear(), S.mes.getMonth()+1, 1);
-  const base = [collection(db,'fichajes'), where('empresaId','==',S.perfil.empresaId),
+  const base = [collection(db,'fichajes'), where('empresaId','==',S.empresa.id),
     where('ts','>=',Timestamp.fromDate(ini)), where('ts','<',Timestamp.fromDate(fin)), orderBy('ts','asc')];
   const q = esGestor() ? query(...base) : query(base[0], where('uid','==',S.perfil.id), ...base.slice(1));
   S.unsub = onSnapshot(q, snap => {
@@ -204,11 +259,11 @@ function suscribirMes() {
     });
 }
 async function cargarPlantilla() {
-  const q = query(collection(db,'users'), where('empresaId','==',S.perfil.empresaId));
+  const q = query(collection(db,'users'), where('empresaId','==',S.empresa.id));
   S.plantilla = (await getDocs(q)).docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b)=>a.nombre.localeCompare(b.nombre));
 }
 async function cargarSolicitudes() {
-  const q = query(collection(db,'solicitudes'), where('empresaId','==',S.perfil.empresaId), where('estado','==','pendiente'));
+  const q = query(collection(db,'solicitudes'), where('empresaId','==',S.empresa.id), where('estado','==','pendiente'));
   S.solicitudes = (await getDocs(q)).docs.map(d => ({ id:d.id, ...d.data() }));
 }
 async function fichar(tipo) {
@@ -251,21 +306,27 @@ function render() {
   if (!S.user) return renderLogin();
   if (!S.perfil) return (app.innerHTML = '<div class="login"><div class="card">Cargando…</div></div>');
   const err = (S.errorLectura ? `<div class="error no-print" style="margin-bottom:12px">${esc(S.errorLectura)}</div>` : '')
-            + (S.error ? `<div class="error no-print" style="margin-bottom:12px">${esc(S.error)}</div>` : '');
+            + (S.error ? `<div class="error no-print" style="margin-bottom:12px">${esc(S.error)}</div>` : '')
+            + (S.ok ? `<div class="aviso no-print" style="margin-bottom:12px;background:var(--verde-bg);color:var(--verde)">${esc(S.ok)}</div>` : '');
   const v = S.vista;
-  const cuerpo = v==='fichar' ? vFichar() : v==='historico' ? vHistorico() : v==='jornada' ? vJornada() : v==='panel' ? vPanel() : vCorrecciones();
-  const tabs = esGestor()
+  const cuerpo = v==='fichar' ? vFichar() : v==='historico' ? vHistorico() : v==='jornada' ? vJornada() : v==='panel' ? vPanel() : v==='empresas' ? vEmpresas() : vCorrecciones();
+  const tabs = esAdmin()
+    ? [['panel','Panel'],['correcciones','Correcciones'],['empresas','Empresas'],['fichar','Fichar'],['historico','Histórico']]
+    : esGestor()
     ? [['panel','Panel'],['correcciones','Correcciones'],['fichar','Fichar'],['historico','Histórico']]
     : [['fichar','Fichar'],['historico','Histórico']];
+  const selector = esAdmin()
+    ? `<select id="sel-empresa" aria-label="Empresa" style="width:auto;max-width:260px">${S.empresas.map(e=>`<option value="${esc(e.id)}" ${e.id===S.empresa.id?'selected':''}>${esc(e.nombre)}</option>`).join('')}</select>`
+    : `<span class="muted">${esc(S.empresa.nombre)}${esGestor()?' · gestor':''}</span>`;
   app.innerHTML = `
     <div class="topbar no-print"><div class="in">
       <div class="avatar">${esc(S.perfil.nombre.split(' ').map(p=>p[0]).join('').slice(0,2).toUpperCase())}</div>
-      <div class="col" style="flex:1;min-width:0"><strong style="font-size:14px">${esc(S.perfil.nombre)}</strong><span class="muted">${esc(S.empresa.nombre)}${esGestor()?' · gestor':''}</span></div>
+      <div class="col" style="flex:1;min-width:0"><strong style="font-size:14px">${esc(S.perfil.nombre)}${esAdmin()?' <span class="pill azul">despacho</span>':''}</strong>${selector}</div>
       <button class="btn sec" data-a="salir">Salir</button>
     </div></div>
-    <div class="page ${esGestor()&&(v==='panel'||v==='correcciones')?'wide':''}">${err}${cuerpo}</div>
+    <div class="page ${esGestor()&&v!=='fichar'&&v!=='historico'&&v!=='jornada'?'wide':''}">${err}${cuerpo}</div>
     <nav class="tabs no-print">${tabs.map(([k,l])=>`<button data-v="${k}" class="${v===k?'on':''}">${l}</button>`).join('')}</nav>`;
-  S.error = '';
+  S.error = ''; S.ok = '';
 }
 
 function renderLogin() {
@@ -274,10 +335,19 @@ function renderLogin() {
     ${S.error?`<div class="error">${esc(S.error)}</div>`:''}
     <div class="col"><label for="email">Correo</label><input id="email" type="email" autocomplete="username" required></div>
     <div class="col"><label for="pass">Contraseña</label><input id="pass" type="password" autocomplete="current-password" required></div>
+    ${S.ok?`<div class="aviso" style="background:var(--verde-bg);color:var(--verde)">${esc(S.ok)}</div>`:''}
     <button class="btn" type="submit">Entrar</button>
+    <a href="#" id="olvide" style="font-size:13px;text-align:center">He olvidado la contraseña / primer acceso</a>
     <span class="muted">¿Sin acceso? Pídeselo al gestor de tu empresa.</span>
   </form></div>`;
-  $('#f-login').onsubmit = async e => { e.preventDefault(); S.error=''; try { await signInWithEmailAndPassword(auth, $('#email').value.trim(), $('#pass').value); } catch { S.error='Correo o contraseña incorrectos.'; render(); } };
+  $('#f-login').onsubmit = async e => { e.preventDefault(); S.error=''; S.ok=''; try { await signInWithEmailAndPassword(auth, $('#email').value.trim(), $('#pass').value); } catch { S.error='Correo o contraseña incorrectos.'; render(); } };
+  $('#olvide').onclick = async e => {
+    e.preventDefault(); const email = $('#email').value.trim(); S.error=''; S.ok='';
+    if (!email) { S.error = 'Escribe tu correo y vuelve a pulsar el enlace.'; return render(); }
+    try { await sendPasswordResetEmail(auth, email); S.ok = 'Si el correo existe, recibirás un mensaje para crear tu contraseña.'; }
+    catch (err) { S.error = 'No se ha podido enviar el correo: ' + err.code; }
+    render();
+  };
 }
 
 function vFichar() {
@@ -342,7 +412,7 @@ function vJornada() {
     <div class="col" style="gap:14px">
       <div class="card row between"><div class="col"><span class="muted">Total trabajado</span><span style="font-size:30px;font-weight:700">${dur(dia.minutos)}</span></div><div class="col" style="align-items:flex-end"><span class="muted">Lugar</span><span class="pill azul">${dia.lugar==='remoto'?'Teletrabajo':'Oficina'}</span></div></div>
       <div class="card"><h2>Fichajes</h2><div class="timeline">${dia.eventos.map((e,i)=>`<div class="tl"><div class="dot"><span style="background:${COLOR[e.tipo]}"></span>${i<dia.eventos.length-1?'<i></i>':''}</div>
-        <div class="body"><div class="col"><strong>${TIPOS[e.tipo]}</strong><span class="muted">${e.lugar==='remoto'?'Teletrabajo':'Oficina'}${e.geo?` · ubicación registrada (±${e.geo.prec} m)`:''}</span></div><strong style="font-variant-numeric:tabular-nums">${hhmm(e.d)}</strong></div></div>`).join('')}</div></div>
+        <div class="body"><div class="col"><strong>${TIPOS[e.tipo]}</strong><span class="muted">${e.manual?'Añadido manualmente por corrección aprobada':(e.lugar==='remoto'?'Teletrabajo':'Oficina')}${e.geo?` · ubicación registrada (±${e.geo.prec} m)`:''}</span></div><strong style="font-variant-numeric:tabular-nums">${hhmm(e.d)}</strong></div></div>`).join('')}</div></div>
       <div class="aviso">Los fichajes no se pueden borrar ni editar. Si hay un error, solicita una corrección: quedará registrada con quién la aprobó y cuándo.</div>
       <form class="card no-print" id="f-corr"><h2>Solicitar corrección</h2><textarea id="motivo" placeholder="Ej.: olvidé fichar la salida a las 18:00" required></textarea><button class="btn ghost" type="submit">Enviar solicitud</button></form>
     </div>`;
@@ -368,9 +438,18 @@ function vPanel() {
       <div class="toolbar no-print"><button class="btn sec" data-m="-1">‹ Mes</button><button class="btn sec" data-m="1">Mes ›</button><button class="btn sec" data-a="csv">Exportar mes (CSV/Excel)</button><button class="btn" style="min-height:44px;font-size:14px" data-a="print">Informe para Inspección (PDF)</button></div></div>
     <div class="col" style="gap:16px">
       <div class="kpis four"><div class="kpi"><span class="muted">Empleados</span><span class="v">${S.plantilla.length}</span></div><div class="kpi"><span class="muted">En jornada ahora</span><span class="v" style="color:var(--verde)">${enJornada}</span></div><div class="kpi"><span class="muted">Teletrabajo hoy</span><span class="v">${remoto}</span></div><div class="kpi"><span class="muted">Incidencias</span><span class="v" style="color:var(--rojo)">${incid}</span></div></div>
-      <div class="card"><h2>Plantilla</h2><div class="tabla"><table><thead><tr><th>Empleado</th><th>Estado</th><th>Lugar hoy</th><th>Entrada</th><th>Hoy</th><th>Mes</th></tr></thead><tbody>
-        ${filas.map(f=>`<tr><td><strong>${esc(f.u.nombre)}</strong></td><td><span class="pill ${f.est[1]}">${f.est[0]}</span></td><td class="muted">${f.hoy?(f.hoy.lugar==='remoto'?'Teletrabajo':'Oficina'):'—'}</td><td>${f.hoy?.eventos[0]?hhmm(f.hoy.eventos[0].d):'—'}</td><td>${f.hoy?dur(f.hoy.minutos):'—'}</td><td>${dur(f.mes)}</td></tr>`).join('')}
+      <div class="card"><h2>Plantilla</h2><div class="tabla"><table><thead><tr><th>Empleado</th><th>Rol</th><th>Estado</th><th>Lugar hoy</th><th>Entrada</th><th>Hoy</th><th>Mes</th><th class="no-print"></th></tr></thead><tbody>
+        ${filas.map(f=>`<tr><td><strong>${esc(f.u.nombre)}</strong><br><span class="muted">${esc(f.u.email||'')}</span></td><td class="muted">${esc(f.u.rol)}</td><td><span class="pill ${f.est[1]}">${f.est[0]}</span></td><td class="muted">${f.hoy?(f.hoy.lugar==='remoto'?'Teletrabajo':'Oficina'):'—'}</td><td>${f.hoy?.eventos[0]?hhmm(f.hoy.eventos[0].d):'—'}</td><td>${f.hoy?dur(f.hoy.minutos):'—'}</td><td>${dur(f.mes)}</td><td class="no-print">${f.u.email?`<button class="btn sec" style="min-height:36px;font-size:12px;padding:0 10px" data-pwd="${esc(f.u.email)}" title="Enviar correo para (re)establecer la contraseña">Contraseña</button>`:''}</td></tr>`).join('')}
       </tbody></table></div></div>
+      <form class="card no-print" id="f-alta"><h2>Dar de alta un empleado</h2>
+        <div class="row" style="flex-wrap:wrap;align-items:flex-end">
+          <div class="col" style="flex:1 1 180px"><label for="alta-nombre">Nombre y apellidos</label><input id="alta-nombre" required></div>
+          <div class="col" style="flex:1 1 220px"><label for="alta-email">Correo</label><input id="alta-email" type="email" required></div>
+          <div class="col" style="flex:0 1 160px"><label for="alta-rol">Rol</label><select id="alta-rol"><option value="trabajador">Trabajador</option>${esAdmin()?'<option value="gestor">Gestor</option>':''}</select></div>
+          <button class="btn" type="submit" style="min-height:44px;font-size:14px">Crear y enviar acceso</button>
+        </div>
+        <span class="muted">El empleado recibirá un correo para crear su contraseña. Si no le llega, que mire el spam o usa el botón "Contraseña" de la tabla.</span>
+      </form>
       <div class="card"><h2>Registro detallado del mes (para Inspección)</h2><div class="tabla"><table><thead><tr><th>Trabajador</th><th>Fecha</th><th>Tramos</th><th>Lugar</th><th>Total</th></tr></thead><tbody>
         ${Object.keys(porUid).flatMap(uid=>{ const ds=agruparPorDia(porUid[uid]); return Object.keys(ds).sort().map(k=>`<tr><td>${esc(porUid[uid][0].nombre||uid)}</td><td>${k}</td><td>${tramos(ds[k])}</td><td class="muted">${ds[k].lugar==='remoto'?'Teletrabajo':'Oficina'}</td><td>${ds[k].incidencia?'<span class="pill rojo">sin cerrar</span>':dur(ds[k].minutos)}</td></tr>`); }).join('') || '<tr><td colspan="5" class="muted">Sin fichajes este mes</td></tr>'}
       </tbody></table></div><span class="muted">Documento generado el ${new Date().toLocaleString('es-ES')} desde el sistema de registro horario de ${esc(S.empresa.nombre)}. Los fichajes son inmutables; las correcciones aprobadas constan en el registro de solicitudes.</span></div>
@@ -378,28 +457,75 @@ function vPanel() {
 }
 
 function vCorrecciones() {
+  const form = s => `<form class="col" id="f-aprobar" data-sid="${s.id}" style="gap:10px;width:100%;padding:12px;background:var(--bg);border-radius:12px">
+      <span class="muted">Fichaje que se añadirá (marcado como manual, con tu nombre y fecha de aprobación):</span>
+      <div class="row" style="flex-wrap:wrap;align-items:flex-end">
+        <div class="col" style="flex:1 1 150px"><label for="ap-tipo">Tipo</label><select id="ap-tipo"><option value="salida">Salida</option><option value="entrada">Entrada</option><option value="pausa">Inicio de pausa</option><option value="reanudar">Fin de pausa</option></select></div>
+        <div class="col" style="flex:1 1 150px"><label for="ap-fecha">Fecha</label><input id="ap-fecha" type="date" value="${esc(s.fecha)}" required></div>
+        <div class="col" style="flex:0 1 120px"><label for="ap-hora">Hora</label><input id="ap-hora" type="time" required></div>
+        <button class="btn verde" type="submit" style="min-height:44px;font-size:14px">Confirmar</button>
+        <button class="btn sec" type="button" data-cancelar="1">Cancelar</button>
+      </div></form>`;
   return `<h1 style="margin-bottom:16px">Correcciones pendientes</h1>
     <div class="card"><div class="list">${S.solicitudes.length? S.solicitudes.map(s=>`<div class="item" style="flex-wrap:wrap"><div class="col" style="flex:1;min-width:200px"><strong>${esc(s.nombre)} · ${s.fecha}</strong><span class="muted">${esc(s.motivo)}</span></div>
-      <div class="row"><button class="btn sec" data-s="${s.id}" data-e="rechazada">Rechazar</button><button class="btn verde" style="min-height:44px;font-size:14px" data-s="${s.id}" data-e="aprobada">Aprobar</button></div></div>`).join('') : '<span class="muted">No hay solicitudes pendientes</span>'}</div></div>
-    <div class="aviso" style="margin-top:14px">Aprobar una solicitud deja constancia de quién y cuándo. El fichaje corregido se añade a mano como nuevo fichaje (p. ej. una salida) desde la consola de Firebase o por el propio trabajador al día siguiente; los originales nunca se modifican.</div>`;
+      ${S.aprobando===s.id ? form(s) : `<div class="row"><button class="btn sec" data-s="${s.id}" data-e="rechazada">Rechazar</button><button class="btn verde" style="min-height:44px;font-size:14px" data-ap="${s.id}">Aprobar y añadir fichaje</button></div>`}</div>`).join('') : '<span class="muted">No hay solicitudes pendientes</span>'}</div></div>
+    <div class="aviso" style="margin-top:14px">Los fichajes originales nunca se modifican. Al aprobar, se añade el fichaje que faltaba marcado como <strong>manual</strong>, con quién lo aprobó, cuándo y la solicitud que lo justifica. Así el registro sigue siendo defendible ante una Inspección.</div>`;
+}
+
+function vEmpresas() {
+  return `<h1 style="margin-bottom:16px">Empresas</h1>
+    <div class="col" style="gap:14px">
+      <div class="card"><h2>Clientes dados de alta</h2><div class="tabla"><table><thead><tr><th>Identificador</th><th>Nombre</th><th>Horas/día</th></tr></thead><tbody>
+        ${S.empresas.map(e=>`<tr><td><code>${esc(e.id)}</code></td><td><strong>${esc(e.nombre)}</strong></td><td>${e.horasDia??8}</td></tr>`).join('')}
+      </tbody></table></div></div>
+      <form class="card" id="f-empresa"><h2>Nueva empresa</h2>
+        <div class="row" style="flex-wrap:wrap;align-items:flex-end">
+          <div class="col" style="flex:1 1 160px"><label for="em-id">Identificador (corto, sin espacios)</label><input id="em-id" placeholder="p. ej. clienteejemplo" required></div>
+          <div class="col" style="flex:2 1 220px"><label for="em-nombre">Razón social</label><input id="em-nombre" required></div>
+          <div class="col" style="flex:0 1 110px"><label for="em-horas">Horas/día</label><input id="em-horas" type="number" min="1" max="12" step="0.5" value="8"></div>
+          <button class="btn" type="submit" style="min-height:44px;font-size:14px">Crear</button>
+        </div>
+        <span class="muted">Después, selecciona la empresa arriba y da de alta a su gestor desde el Panel (rol "Gestor").</span>
+      </form>
+    </div>`;
 }
 
 // ---------- eventos ----------
 app.addEventListener('click', async e => {
-  const b = e.target.closest('[data-v],[data-f],[data-l],[data-m],[data-a],[data-d],[data-s]');
+  const b = e.target.closest('[data-v],[data-f],[data-l],[data-m],[data-a],[data-d],[data-s],[data-ap],[data-cancelar],[data-pwd]');
   if (!b) return;
-  if (b.dataset.v) { S.vista = b.dataset.v; if (S.vista==='panel') await cargarPlantilla(); if (S.vista==='correcciones') await cargarSolicitudes(); render(); }
-  else if (b.dataset.f) { b.disabled = true; await fichar(b.dataset.f); }
-  else if (b.dataset.l) { S.lugar = b.dataset.l; render(); }
-  else if (b.dataset.m) { S.mes = new Date(S.mes.getFullYear(), S.mes.getMonth()+Number(b.dataset.m), 1); suscribirMes(); }
-  else if (b.dataset.d) { e.preventDefault(); S.diaSel = b.dataset.d; S.vista='jornada'; render(); }
-  else if (b.dataset.s) { await resolverSolicitud(b.dataset.s, b.dataset.e); }
-  else if (b.dataset.a==='salir') { await signOut(auth); }
-  else if (b.dataset.a==='csv') { exportarCSV(); }
-  else if (b.dataset.a==='print') { window.print(); }
+  try {
+    if (b.dataset.v) { S.vista = b.dataset.v; S.aprobando = null; if (S.vista==='panel') await cargarPlantilla(); if (S.vista==='correcciones') await cargarSolicitudes(); if (S.vista==='empresas') await cargarEmpresas(); render(); }
+    else if (b.dataset.f) { b.disabled = true; await fichar(b.dataset.f); }
+    else if (b.dataset.l) { S.lugar = b.dataset.l; render(); }
+    else if (b.dataset.m) { S.mes = new Date(S.mes.getFullYear(), S.mes.getMonth()+Number(b.dataset.m), 1); suscribirMes(); }
+    else if (b.dataset.d) { e.preventDefault(); S.diaSel = b.dataset.d; S.vista='jornada'; render(); }
+    else if (b.dataset.s) { await resolverSolicitud(b.dataset.s, b.dataset.e); }
+    else if (b.dataset.ap) { S.aprobando = b.dataset.ap; render(); }
+    else if (b.dataset.cancelar) { S.aprobando = null; render(); }
+    else if (b.dataset.pwd) { b.disabled = true; await reenviarPassword(b.dataset.pwd); b.disabled = false; }
+    else if (b.dataset.a==='salir') { await signOut(auth); }
+    else if (b.dataset.a==='csv') { exportarCSV(); }
+    else if (b.dataset.a==='print') { window.print(); }
+  } catch (err) { S.error = err.message || String(err); render(); }
+});
+app.addEventListener('change', async e => {
+  if (e.target.id === 'sel-empresa') {
+    try { await seleccionarEmpresa(e.target.value); suscribirMes(); render(); }
+    catch (err) { S.error = err.message; render(); }
+  }
 });
 app.addEventListener('submit', async e => {
-  if (e.target.id === 'f-corr') { e.preventDefault(); await solicitarCorreccion(S.diaSel, $('#motivo').value.trim()); e.target.reset(); }
+  const f = e.target; if (!f.id) return;
+  e.preventDefault();
+  const btn = f.querySelector('button[type="submit"]'); if (btn) btn.disabled = true;
+  try {
+    if (f.id === 'f-corr') { await solicitarCorreccion(S.diaSel, $('#motivo').value.trim()); f.reset(); }
+    else if (f.id === 'f-alta') { await crearUsuario($('#alta-nombre').value, $('#alta-email').value, $('#alta-rol').value); S.ok = 'Usuario creado. Le hemos enviado el correo para crear su contraseña.'; render(); }
+    else if (f.id === 'f-empresa') { const id = await crearEmpresa($('#em-id').value, $('#em-nombre').value, $('#em-horas').value); S.ok = `Empresa "${id}" creada. Selecciónala arriba para dar de alta a su gestor.`; render(); }
+    else if (f.id === 'f-aprobar') { const s = S.solicitudes.find(x=>x.id===f.dataset.sid); await aprobarConFichaje(s, $('#ap-tipo').value, $('#ap-fecha').value, $('#ap-hora').value); render(); }
+  } catch (err) { S.error = err.message || String(err); render(); }
+  finally { if (btn) btn.disabled = false; }
 });
 setInterval(() => { if (S.user && S.perfil && (S.vista==='fichar'||S.vista==='panel')) render(); }, 60000);
 
@@ -407,7 +533,7 @@ onAuthStateChanged(auth, async user => {
   S.user = user; S.perfil = null; S.fichajes = []; if (S.unsub) { S.unsub(); S.unsub = null; }
   if (!user) return render();
   render();
-  try { await cargarPerfil(user.uid); S.vista = esGestor() ? 'panel' : 'fichar'; if (esGestor()) await cargarPlantilla(); suscribirMes(); }
+  try { await cargarPerfil(user.uid); S.vista = esGestor() ? 'panel' : 'fichar'; suscribirMes(); }
   catch (err) { S.error = err.message; S.perfil = null; await signOut(auth); render(); }
 });
 </script>
