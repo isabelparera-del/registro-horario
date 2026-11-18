@@ -187,6 +187,7 @@ function tramos(dia) {
 async function cargarPerfil(uid) {
   const snap = await getDoc(doc(db, 'users', uid));
   if (!snap.exists()) throw new Error('Tu usuario no está dado de alta en ninguna empresa. Avisa al gestor.');
+  if (snap.data().activo === false) throw new Error('Tu cuenta está dada de baja. Si crees que es un error, habla con tu responsable.');
   S.perfil = { id: uid, ...snap.data() };
   if (esAdmin()) await cargarEmpresas();
   await seleccionarEmpresa(S.perfil.empresaId);
@@ -229,6 +230,15 @@ async function crearUsuario(nombre, email, rol) {
 async function reenviarPassword(email) {
   await sendPasswordResetEmail(auth, email);
   toast('Correo enviado a ' + email);
+}
+// Baja = desactivar: no puede entrar, pero sus fichajes se conservan (obligatorio 4 años) y siguen en los informes.
+async function cambiarActivo(uid, activo) {
+  await updateDoc(doc(db,'users',uid), activo
+    ? { activo: true, reactivadoEn: serverTimestamp(), reactivadoPor: S.perfil.id }
+    : { activo: false, bajaEn: serverTimestamp(), bajaPor: S.perfil.id });
+  S.bajaConfirm = null;
+  await cargarPlantilla();
+  toast(activo ? 'Usuario reactivado' : 'Usuario dado de baja');
 }
 async function cambiarPassword(actual, nueva) {
   const cred = EmailAuthProvider.credential(S.user.email, actual);
@@ -470,10 +480,15 @@ function vJornada() {
     </div>`;
 }
 
+// Un gestor solo puede dar de baja trabajadores; el admin, a cualquiera menos a sí mismo.
+const puedoBaja = u => u.id !== S.perfil.id && (esAdmin() || u.rol === 'trabajador');
+
 function vPanel() {
   const hoyK = ymd(new Date());
   const porUid = {}; for (const f of S.fichajes) (porUid[f.uid] ||= []).push(f);
-  const filas = S.plantilla.map(u => {
+  const activos = S.plantilla.filter(u => u.activo !== false);
+  const bajas = S.plantilla.filter(u => u.activo === false);
+  const filas = activos.map(u => {
     const dias = agruparPorDia(porUid[u.id] || []);
     const hoy = dias[hoyK];
     const mes = Object.values(dias).reduce((a,d)=>a+d.minutos,0);
@@ -489,10 +504,16 @@ function vPanel() {
       <div class="col"><span class="muted">${esc(S.empresa.nombre)} · ${MESES[S.mes.getMonth()]} ${S.mes.getFullYear()}</span><h1>Panel</h1></div>
       <div class="toolbar no-print"><button class="btn sec" data-m="-1">‹ Mes</button><button class="btn sec" data-m="1">Mes ›</button><button class="btn sec" data-a="csv">Exportar mes (CSV/Excel)</button><button class="btn" style="min-height:44px;font-size:14px" data-a="print">Informe para Inspección (PDF)</button></div></div>
     <div class="col" style="gap:16px">
-      <div class="kpis four"><div class="kpi"><span class="muted">Empleados</span><span class="v">${S.plantilla.length}</span></div><div class="kpi"><span class="muted">En jornada ahora</span><span class="v" style="color:var(--verde)">${enJornada}</span></div><div class="kpi"><span class="muted">Teletrabajo hoy</span><span class="v">${remoto}</span></div><div class="kpi"><span class="muted">Incidencias</span><span class="v" style="color:var(--rojo)">${incid}</span></div></div>
+      <div class="kpis four"><div class="kpi"><span class="muted">Empleados</span><span class="v">${activos.length}</span></div><div class="kpi"><span class="muted">En jornada ahora</span><span class="v" style="color:var(--verde)">${enJornada}</span></div><div class="kpi"><span class="muted">Teletrabajo hoy</span><span class="v">${remoto}</span></div><div class="kpi"><span class="muted">Incidencias</span><span class="v" style="color:var(--rojo)">${incid}</span></div></div>
       <div class="card"><h2>Plantilla</h2><div class="tabla"><table><thead><tr><th>Empleado</th><th>Rol</th><th>Estado</th><th>Lugar hoy</th><th>Entrada</th><th>Hoy</th><th>Mes</th><th class="no-print"></th></tr></thead><tbody>
-        ${filas.map(f=>`<tr><td><strong>${esc(f.u.nombre)}</strong><br><span class="muted">${esc(f.u.email||'')}</span></td><td class="muted">${esc(f.u.rol)}</td><td><span class="pill ${f.est[1]}">${f.est[0]}</span></td><td class="muted">${f.hoy?(f.hoy.lugar==='remoto'?'Teletrabajo':'Oficina'):'—'}</td><td>${f.hoy?.eventos[0]?hhmm(f.hoy.eventos[0].d):'—'}</td><td>${f.hoy?dur(f.hoy.minutos):'—'}</td><td>${dur(f.mes)}</td><td class="no-print">${f.u.email?`<button class="btn sec" style="min-height:36px;font-size:12px;padding:0 10px" data-pwd="${esc(f.u.email)}" title="Enviar correo para (re)establecer la contraseña">Contraseña</button>`:''}</td></tr>`).join('')}
-      </tbody></table></div></div>
+        ${filas.map(f=>`<tr><td><strong>${esc(f.u.nombre)}</strong><br><span class="muted">${esc(f.u.email||'')}</span></td><td class="muted">${esc(f.u.rol)}</td><td><span class="pill ${f.est[1]}">${f.est[0]}</span></td><td class="muted">${f.hoy?(f.hoy.lugar==='remoto'?'Teletrabajo':'Oficina'):'—'}</td><td>${f.hoy?.eventos[0]?hhmm(f.hoy.eventos[0].d):'—'}</td><td>${f.hoy?dur(f.hoy.minutos):'—'}</td><td>${dur(f.mes)}</td><td class="no-print"><div class="row" style="gap:6px;justify-content:flex-end">${f.u.email?`<button class="btn sec" style="min-height:36px;font-size:12px;padding:0 10px" data-pwd="${esc(f.u.email)}" title="Enviar correo para (re)establecer la contraseña">Contraseña</button>`:''}${puedoBaja(f.u) ? (S.bajaConfirm===f.u.id
+          ? `<button class="btn rojo" style="min-height:36px;font-size:12px;padding:0 10px" data-baja="${f.u.id}">Confirmar baja</button><button class="btn sec" style="min-height:36px;font-size:12px;padding:0 10px" data-baja-cancel="1">Cancelar</button>`
+          : `<button class="btn sec" style="min-height:36px;font-size:12px;padding:0 10px;color:var(--rojo)" data-baja-ask="${f.u.id}">Baja</button>`) : ''}</div></td></tr>`).join('')}
+      </tbody></table></div>
+      ${S.bajaConfirm ? `<span class="muted">Dar de baja quita el acceso a la app; sus fichajes se conservan y siguen apareciendo en los informes. Se puede reactivar en cualquier momento.</span>` : ''}</div>
+      ${bajas.length ? `<div class="card"><h2>Bajas (sin acceso; fichajes conservados)</h2><div class="tabla"><table><thead><tr><th>Empleado</th><th>Rol</th><th>Baja</th><th class="no-print"></th></tr></thead><tbody>
+        ${bajas.map(u=>`<tr><td><strong>${esc(u.nombre)}</strong><br><span class="muted">${esc(u.email||'')}</span></td><td class="muted">${esc(u.rol)}</td><td class="muted">${u.bajaEn?.toDate ? u.bajaEn.toDate().toLocaleDateString('es-ES') : '—'}</td><td class="no-print" style="text-align:right">${puedoBaja(u)?`<button class="btn sec" style="min-height:36px;font-size:12px;padding:0 10px" data-reactivar="${u.id}">Reactivar</button>`:''}</td></tr>`).join('')}
+      </tbody></table></div></div>` : ''}
       <form class="card no-print" id="f-alta"><h2>Dar de alta un empleado</h2>
         <div class="row" style="flex-wrap:wrap;align-items:flex-end">
           <div class="col" style="flex:1 1 180px"><label for="alta-nombre">Nombre y apellidos</label><input id="alta-nombre" required></div>
@@ -561,9 +582,13 @@ function vEmpresas() {
 
 // ---------- eventos ----------
 app.addEventListener('click', async e => {
-  const b = e.target.closest('[data-v],[data-f],[data-l],[data-m],[data-a],[data-d],[data-s],[data-ap],[data-cancelar],[data-pwd],[data-copiar],[data-cerrar-acceso]');
+  const b = e.target.closest('[data-v],[data-f],[data-l],[data-m],[data-a],[data-d],[data-s],[data-ap],[data-cancelar],[data-pwd],[data-copiar],[data-cerrar-acceso],[data-baja-ask],[data-baja],[data-baja-cancel],[data-reactivar]');
   if (!b) return;
   try {
+    if (b.dataset.bajaAsk) { S.bajaConfirm = b.dataset.bajaAsk; return render(); }
+    if (b.dataset.bajaCancel) { S.bajaConfirm = null; return render(); }
+    if (b.dataset.baja) { b.disabled = true; await cambiarActivo(b.dataset.baja, false); return render(); }
+    if (b.dataset.reactivar) { b.disabled = true; await cambiarActivo(b.dataset.reactivar, true); return render(); }
     if (b.dataset.v) { e.preventDefault(); S.vista = b.dataset.v; S.aprobando = null; if (S.vista==='panel') await cargarPlantilla(); if (S.vista==='correcciones') await cargarSolicitudes(); if (S.vista==='empresas') await cargarEmpresas(); render(); }
     else if (b.dataset.copiar) { await navigator.clipboard.writeText(b.dataset.copiar); toast('Copiado al portapapeles'); }
     else if (b.dataset.cerrarAcceso) { S.nuevoAcceso = null; render(); }
